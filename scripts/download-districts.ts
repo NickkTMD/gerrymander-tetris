@@ -50,6 +50,37 @@ async function shapefileToGeoJSON(shpPath: string): Promise<FeatureCollection> {
   return { type: "FeatureCollection", features };
 }
 
+/** Compute the absolute area of a coordinate ring using the Shoelace formula. */
+function shoelaceArea(ring: Position[]): number {
+  let area = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    area += ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
+  }
+  return Math.abs(area) / 2;
+}
+
+/** Reduce MultiPolygon features to just the largest polygon (by outer ring area). */
+function keepLargestPolygon(feature: Feature): Feature {
+  if (feature.geometry.type !== "MultiPolygon") return feature;
+  const multi = feature.geometry as MultiPolygon;
+  let largestIdx = 0;
+  let largestArea = 0;
+  for (let i = 0; i < multi.coordinates.length; i++) {
+    const area = shoelaceArea(multi.coordinates[i][0]);
+    if (area > largestArea) {
+      largestArea = area;
+      largestIdx = i;
+    }
+  }
+  return {
+    ...feature,
+    geometry: {
+      type: "Polygon",
+      coordinates: multi.coordinates[largestIdx],
+    } as Polygon,
+  };
+}
+
 async function main() {
   const tmpDir = join(tmpdir(), "census-districts");
   mkdirSync(tmpDir, { recursive: true });
@@ -76,6 +107,11 @@ async function main() {
   // Convert to GeoJSON
   const geojson = await shapefileToGeoJSON(shpPath);
   console.log(`Read ${geojson.features.length} district features`);
+
+  // Reduce MultiPolygon districts to just the largest polygon
+  const multiCount = geojson.features.filter(f => f.geometry.type === "MultiPolygon").length;
+  geojson.features = geojson.features.map(keepLargestPolygon);
+  console.log(`Simplified ${multiCount} MultiPolygon features to single Polygon`);
 
   // Convert to TopoJSON
   console.log("Converting to TopoJSON...");
