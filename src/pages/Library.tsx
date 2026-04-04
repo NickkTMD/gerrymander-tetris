@@ -3,10 +3,18 @@ import * as topojson from 'topojson-client';
 import type { Topology } from 'topojson-specification';
 import type { DistrictFeature } from '../types/district';
 import stateNames, { getDistrictLabel } from '../data/stateNames';
-import DistrictCard from '../components/DistrictCard';
+import StateMap from '../components/StateMap';
+import PixelCarousel from '../components/PixelCarousel';
 import { DISTRICT_PIECES } from '../data/generatedPieces';
+import { stateGerrymanderData } from '../data/stateGerrymanderScores';
 import NavBar from '../components/NavBar';
 import '../App.css';
+
+interface StateGroup {
+  fips: string;
+  name: string;
+  districts: DistrictFeature[];
+}
 
 function loadSelectedIds(): Set<string> {
   try {
@@ -20,8 +28,9 @@ export default function Library() {
   const [districts, setDistricts] = useState<DistrictFeature[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState<'name' | 'score-desc' | 'score-asc'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'rank' | 'score-desc'>('rank');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(loadSelectedIds);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   function toggleDistrict(id: string) {
     setSelectedIds(prev => {
@@ -29,7 +38,6 @@ export default function Library() {
       if (next.has(id)) next.delete(id); else next.add(id);
       const arr = [...next];
       localStorage.setItem('selectedDistricts', JSON.stringify(arr));
-      console.log(`Selected districts (${arr.length}):`, JSON.stringify(arr));
       return next;
     });
   }
@@ -37,7 +45,6 @@ export default function Library() {
   function clearSelection() {
     setSelectedIds(new Set());
     localStorage.removeItem('selectedDistricts');
-    console.log('Selected districts (0): []');
   }
 
   useEffect(() => {
@@ -77,20 +84,54 @@ export default function Library() {
     );
   }
 
+  // Group districts by state
+  const stateGroupMap = new Map<string, StateGroup>();
+  for (const d of districts) {
+    const fips = d.properties.STATEFP;
+    if (!stateGroupMap.has(fips)) {
+      stateGroupMap.set(fips, {
+        fips,
+        name: stateNames[fips] ?? fips,
+        districts: [],
+      });
+    }
+    stateGroupMap.get(fips)!.districts.push(d);
+  }
+
+  let stateGroups = Array.from(stateGroupMap.values());
+
+  // Filter by search
   const query = deferredSearch.toLowerCase();
-  const filtered = (query
-    ? districts.filter((d) =>
+  if (query) {
+    stateGroups = stateGroups.filter(group =>
+      group.name.toLowerCase().includes(query) ||
+      group.districts.some(d =>
         getDistrictLabel(d.properties.STATEFP, d.properties.CD119FP)
           .toLowerCase()
-          .includes(query),
+          .includes(query)
       )
-    : [...districts]
-  ).sort((a, b) => {
-    if (sortBy === 'name') return 0; // already sorted by name
-    const scoreA = DISTRICT_PIECES[`d${a.properties.GEOID}`]?.gerrymanderScore ?? 0;
-    const scoreB = DISTRICT_PIECES[`d${b.properties.GEOID}`]?.gerrymanderScore ?? 0;
-    return sortBy === 'score-desc' ? scoreB - scoreA : scoreA - scoreB;
-  });
+    );
+  }
+
+  // Sort states
+  if (sortBy === 'rank') {
+    stateGroups.sort((a, b) => {
+      const rankA = stateGerrymanderData[a.fips]?.rank ?? 999;
+      const rankB = stateGerrymanderData[b.fips]?.rank ?? 999;
+      if (rankA !== rankB) return rankA - rankB;
+      return a.name.localeCompare(b.name);
+    });
+  } else if (sortBy === 'score-desc') {
+    stateGroups.sort((a, b) => {
+      const maxA = Math.max(...a.districts.map(d => DISTRICT_PIECES[`d${d.properties.GEOID}`]?.gerrymanderScore ?? 0));
+      const maxB = Math.max(...b.districts.map(d => DISTRICT_PIECES[`d${d.properties.GEOID}`]?.gerrymanderScore ?? 0));
+      return maxB - maxA;
+    });
+  } else {
+    stateGroups.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  const totalDistricts = stateGroups.reduce((sum, g) => sum + g.districts.length, 0);
 
   return (
     <>
@@ -101,24 +142,24 @@ export default function Library() {
         <input
           className="library-search"
           type="text"
-          placeholder="Search by state or district (e.g. California, District 14)"
+          placeholder="Search by state or district (e.g. Texas, NC-03)"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
         <select
           className="library-sort"
           value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as 'name' | 'score-desc' | 'score-asc')}
+          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
         >
-          <option value="name">Sort: Name</option>
-          <option value="score-desc">Sort: Most Gerrymandered</option>
-          <option value="score-asc">Sort: Most Compact</option>
+          <option value="rank">Sort: Gerrymander Rank</option>
+          <option value="name">Sort: State Name</option>
+          <option value="score-desc">Sort: Highest District Score</option>
         </select>
       </div>
-      <p>
+      <p className="library-summary">
         {query
-          ? `Showing ${filtered.length} of ${districts.length}`
-          : `${districts.length} congressional districts`}
+          ? `Showing ${totalDistricts} districts in ${stateGroups.length} states`
+          : `${totalDistricts} congressional districts across ${stateGroups.length} states`}
         {selectedIds.size > 0 && (
           <>
             {' · '}{selectedIds.size} selected{' '}
@@ -128,15 +169,54 @@ export default function Library() {
           </>
         )}
       </p>
-      <div className="library-grid" style={{ opacity: isStale ? 0.6 : 1, transition: 'opacity 0.15s' }}>
-        {filtered.map((d) => (
-          <DistrictCard
-            key={d.properties.GEOID}
-            feature={d}
-            selected={selectedIds.has(`d${d.properties.GEOID}`)}
-            onToggle={() => toggleDistrict(`d${d.properties.GEOID}`)}
-          />
-        ))}
+      <div className="state-sections" style={{ opacity: isStale ? 0.6 : 1, transition: 'opacity 0.15s' }}>
+        {stateGroups.map((group) => {
+          const gData = stateGerrymanderData[group.fips];
+          return (
+            <section key={group.fips} className={`state-section${gData ? ' state-section-ranked' : ''}`}>
+              <div className="state-header">
+                <div className="state-header-left">
+                  {gData && (
+                    <span className={`state-rank-badge ${gData.party === 'R' ? 'rank-gop' : 'rank-dem'}`}>
+                      #{gData.rank}
+                    </span>
+                  )}
+                  <h2 className="state-name">{group.name}</h2>
+                  <span className="state-district-count">{group.districts.length} district{group.districts.length !== 1 ? 's' : ''}</span>
+                </div>
+                {gData && (
+                  <div className="state-header-right">
+                    <span className={`state-advantage ${gData.party === 'R' ? 'advantage-gop' : 'advantage-dem'}`}>
+                      +{gData.avgAdvantage.toFixed(1)} {gData.party === 'R' ? 'GOP' : 'Dem'} seats
+                    </span>
+                    <span className="state-metrics">
+                      EG: {gData.effGap > 0 ? '+' : ''}{gData.effGap.toFixed(2)}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {gData && (
+                <p className="state-description">{gData.description}</p>
+              )}
+              <div className="state-map-container">
+                <StateMap
+                  districts={group.districts}
+                  selectedIds={selectedIds}
+                  hoveredId={hoveredId}
+                  onToggleDistrict={toggleDistrict}
+                  onHoverDistrict={setHoveredId}
+                />
+              </div>
+              <PixelCarousel
+                districts={group.districts}
+                hoveredId={hoveredId}
+                onHover={setHoveredId}
+                onClick={toggleDistrict}
+                selectedIds={selectedIds}
+              />
+            </section>
+          );
+        })}
       </div>
     </div>
     </>

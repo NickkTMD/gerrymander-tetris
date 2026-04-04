@@ -1,5 +1,6 @@
 import type { PieceShape } from '../types/tetris';
-import { DISTRICT_PIECES, DISTRICT_PIECE_IDS } from '../data/generatedPieces';
+import { DISTRICT_PIECES } from '../data/generatedPieces';
+import { FEATURED_DISTRICT_IDS } from './featuredDistricts';
 import { getDistrictShortLabel } from '../data/stateNames';
 import { stateLeans } from '../data/stateLeans';
 
@@ -28,7 +29,7 @@ export const PIECES: Record<string, PieceDefinition> = Object.fromEntries(
   })
 );
 
-export const PIECE_TYPES = DISTRICT_PIECE_IDS;
+export const PIECE_TYPES = FEATURED_DISTRICT_IDS;
 
 export function getPieceColor(pieceType: string): string {
   return PIECES[pieceType]?.color ?? '#888';

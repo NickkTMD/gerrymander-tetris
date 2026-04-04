@@ -24,4 +24,5 @@ export interface GameState {
   level: number;
   status: GameStatus;
   tickIntervalMs: number;
+  piecesPlaced: number;
 }

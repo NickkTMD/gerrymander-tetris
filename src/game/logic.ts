@@ -57,6 +57,15 @@ export function clearFullRows(board: BoardGrid): { board: BoardGrid; rowsCleared
   return { board: [...emptyRows, ...kept], rowsCleared };
 }
 
+export function clearBottomRows(board: BoardGrid, count: number): BoardGrid {
+  const n = Math.min(count, board.length);
+  const kept = board.slice(0, board.length - n);
+  const emptyRows: BoardGrid = Array.from({ length: n }, () =>
+    Array(BOARD_COLS).fill(null)
+  );
+  return [...emptyRows, ...kept];
+}
+
 export function mergePieceOntoBoard(board: BoardGrid, piece: ActivePiece | null): BoardGrid {
   if (!piece) return board;
   const display = board.map(row => [...row]);

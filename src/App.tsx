@@ -1,17 +1,22 @@
-import { useReducer, useEffect, useRef, useState } from 'react'
+import { useReducer, useEffect, useRef, useState, useMemo } from 'react'
 import './App.css'
 import Board from './components/Board'
 import SidePanel from './components/SidePanel'
-import { gameReducer, initialState } from './game/reducer'
+import FeatureFlagsPanel from './components/FeatureFlagsPanel'
+import { createGameReducer, initialState } from './game/reducer'
 import { mergePieceOntoBoard } from './game/logic'
 import { useGameLoop } from './hooks/useGameLoop'
 import { useSoundDispatch } from './hooks/useSoundDispatch'
 import { audioEngine } from './audio/AudioEngine'
 import { addScore } from './leaderboard'
 import GameLogo from './components/GameLogo'
+import { DEFAULT_FEATURE_FLAGS } from './types/featureFlags'
+import type { FeatureFlags } from './types/featureFlags'
 
 function App() {
-  const [state, rawDispatch] = useReducer(gameReducer, initialState);
+  const [flags, setFlags] = useState<FeatureFlags>(DEFAULT_FEATURE_FLAGS);
+  const reducer = useMemo(() => createGameReducer(flags), [flags]);
+  const [state, rawDispatch] = useReducer(reducer, initialState);
   const dispatch = useSoundDispatch(rawDispatch, state);
   const [muted, setMuted] = useState(false);
   useGameLoop(dispatch, state.status, state.tickIntervalMs);
@@ -51,6 +56,12 @@ function App() {
               P/Esc Pause
             </div>
           </>
+        )}
+        {state.status !== 'playing' && (
+          <FeatureFlagsPanel
+            flags={flags}
+            onToggle={(key) => setFlags(prev => ({ ...prev, [key]: !prev[key] }))}
+          />
         )}
       </div>
       <div className="board-wrapper">
