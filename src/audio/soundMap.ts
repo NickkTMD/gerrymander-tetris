@@ -43,23 +43,27 @@ export function resolveSounds(
       }
       break;
 
-    case 'MOVE_DOWN':
-      if (prevState.activePiece && nextState.activePiece &&
-          prevState.activePiece.row !== nextState.activePiece.row) {
-        sounds.push({ sound: 'softDrop' });
-      } else if (prevState.activePiece && !nextState.activePiece ||
-                 prevState.activePiece && nextState.activePiece &&
-                 prevState.activePiece.type !== nextState.activePiece.type) {
-        // Piece locked
-        sounds.push({ sound: 'lock' });
+    case 'MOVE_DOWN': {
+      const pieceLocked = (prevState.activePiece && !nextState.activePiece) ||
+        (prevState.activePiece && nextState.activePiece &&
+         prevState.activePiece.type !== nextState.activePiece.type);
+      if (prevState.hardDropping) {
+        // During hard drop animation: silent on each step; only play lock when piece lands
+        if (pieceLocked) sounds.push({ sound: 'lock' });
+      } else {
+        if (prevState.activePiece && nextState.activePiece &&
+            prevState.activePiece.row !== nextState.activePiece.row) {
+          sounds.push({ sound: 'softDrop' });
+        } else if (pieceLocked) {
+          sounds.push({ sound: 'lock' });
+        }
       }
       break;
+    }
 
     case 'HARD_DROP':
+      // Play hardDrop sound immediately; lock sound plays when MOVE_DOWN locks the piece
       sounds.push({ sound: 'hardDrop' });
-      if (prevState.activePiece) {
-        sounds.push({ sound: 'lock' });
-      }
       break;
 
     case 'TICK':

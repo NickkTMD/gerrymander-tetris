@@ -1,4 +1,4 @@
-import { useEffect, useDeferredValue, useState } from 'react';
+import { useEffect, useDeferredValue, useState, useMemo, useCallback } from 'react';
 import * as topojson from 'topojson-client';
 import type { Topology } from 'topojson-specification';
 import type { DistrictFeature } from '../types/district';
@@ -7,7 +7,6 @@ import StateMap from '../components/StateMap';
 import PixelCarousel from '../components/PixelCarousel';
 import { DISTRICT_PIECES } from '../data/generatedPieces';
 import { stateGerrymanderData } from '../data/stateGerrymanderScores';
-import NavBar from '../components/NavBar';
 import '../App.css';
 
 interface StateGroup {
@@ -32,7 +31,7 @@ export default function Library() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(loadSelectedIds);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  function toggleDistrict(id: string) {
+  const toggleDistrict = useCallback((id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
@@ -40,12 +39,12 @@ export default function Library() {
       localStorage.setItem('selectedDistricts', JSON.stringify(arr));
       return next;
     });
-  }
+  }, []);
 
-  function clearSelection() {
+  const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
     localStorage.removeItem('selectedDistricts');
-  }
+  }, []);
 
   useEffect(() => {
     fetch('/data/districts.topo.json')
@@ -72,92 +71,113 @@ export default function Library() {
   const deferredSearch = useDeferredValue(search);
   const isStale = deferredSearch !== search;
 
+  const baseStateGroups = useMemo(() => {
+    const stateGroupMap = new Map<string, StateGroup>();
+    for (const d of districts) {
+      const fips = d.properties.STATEFP;
+      if (!stateGroupMap.has(fips)) {
+        stateGroupMap.set(fips, {
+          fips,
+          name: stateNames[fips] ?? fips,
+          districts: [],
+        });
+      }
+      stateGroupMap.get(fips)!.districts.push(d);
+    }
+    return Array.from(stateGroupMap.values());
+  }, [districts]);
+
+  const stateGroups = useMemo(() => {
+    const query = deferredSearch.toLowerCase();
+    let groups: StateGroup[] = baseStateGroups;
+
+    if (query) {
+      groups = groups.filter(group =>
+        group.name.toLowerCase().includes(query) ||
+        group.districts.some(d =>
+          getDistrictLabel(d.properties.STATEFP, d.properties.CD119FP)
+            .toLowerCase()
+            .includes(query)
+        )
+      );
+    }
+
+    const sorted = [...groups];
+
+    if (sortBy === 'rank') {
+      sorted.sort((a, b) => {
+        const rankA = stateGerrymanderData[a.fips]?.rank ?? 999;
+        const rankB = stateGerrymanderData[b.fips]?.rank ?? 999;
+        if (rankA !== rankB) return rankA - rankB;
+        return a.name.localeCompare(b.name);
+      });
+    } else if (sortBy === 'score-desc') {
+      const maxScores = new Map(
+        sorted.map(g => [
+          g.fips,
+          g.districts.reduce((max, d) => {
+            const score = DISTRICT_PIECES[`d${d.properties.GEOID}`]?.gerrymanderScore ?? 0;
+            return score > max ? score : max;
+          }, 0),
+        ])
+      );
+      sorted.sort((a, b) => (maxScores.get(b.fips) ?? 0) - (maxScores.get(a.fips) ?? 0));
+    } else {
+      sorted.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    return sorted;
+  }, [baseStateGroups, deferredSearch, sortBy]);
+
+  const totalDistricts = useMemo(
+    () => stateGroups.reduce((sum, g) => sum + g.districts.length, 0),
+    [stateGroups]
+  );
+
   if (loading) {
     return (
-      <>
-      <NavBar />
       <div className="library-page">
-        <h1>District Library</h1>
-        <p>Loading districts…</p>
+        <div className="library-page-header">
+          <h1>District Library</h1>
+          <span className="library-subtitle">Congressional Districts · 119th Congress</span>
+        </div>
+        <p className="library-summary">Loading districts…</p>
       </div>
-      </>
     );
   }
-
-  // Group districts by state
-  const stateGroupMap = new Map<string, StateGroup>();
-  for (const d of districts) {
-    const fips = d.properties.STATEFP;
-    if (!stateGroupMap.has(fips)) {
-      stateGroupMap.set(fips, {
-        fips,
-        name: stateNames[fips] ?? fips,
-        districts: [],
-      });
-    }
-    stateGroupMap.get(fips)!.districts.push(d);
-  }
-
-  let stateGroups = Array.from(stateGroupMap.values());
-
-  // Filter by search
-  const query = deferredSearch.toLowerCase();
-  if (query) {
-    stateGroups = stateGroups.filter(group =>
-      group.name.toLowerCase().includes(query) ||
-      group.districts.some(d =>
-        getDistrictLabel(d.properties.STATEFP, d.properties.CD119FP)
-          .toLowerCase()
-          .includes(query)
-      )
-    );
-  }
-
-  // Sort states
-  if (sortBy === 'rank') {
-    stateGroups.sort((a, b) => {
-      const rankA = stateGerrymanderData[a.fips]?.rank ?? 999;
-      const rankB = stateGerrymanderData[b.fips]?.rank ?? 999;
-      if (rankA !== rankB) return rankA - rankB;
-      return a.name.localeCompare(b.name);
-    });
-  } else if (sortBy === 'score-desc') {
-    stateGroups.sort((a, b) => {
-      const maxA = Math.max(...a.districts.map(d => DISTRICT_PIECES[`d${d.properties.GEOID}`]?.gerrymanderScore ?? 0));
-      const maxB = Math.max(...b.districts.map(d => DISTRICT_PIECES[`d${d.properties.GEOID}`]?.gerrymanderScore ?? 0));
-      return maxB - maxA;
-    });
-  } else {
-    stateGroups.sort((a, b) => a.name.localeCompare(b.name));
-  }
-
-  const totalDistricts = stateGroups.reduce((sum, g) => sum + g.districts.length, 0);
 
   return (
-    <>
-    <NavBar />
     <div className="library-page">
-      <h1>District Library</h1>
+      <div className="library-page-header">
+        <h1>District Library</h1>
+        <span className="library-subtitle">Congressional Districts · 119th Congress</span>
+      </div>
       <div className="library-controls">
-        <input
-          className="library-search"
-          type="text"
-          placeholder="Search by state or district (e.g. Texas, NC-03)"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <select
-          className="library-sort"
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-        >
-          <option value="rank">Sort: Gerrymander Rank</option>
-          <option value="name">Sort: State Name</option>
-          <option value="score-desc">Sort: Highest District Score</option>
-        </select>
+        <div className="library-field-group">
+          <label className="library-field-label">Search</label>
+          <input
+            className="library-search"
+            type="text"
+            placeholder="State or district — e.g. Texas, NC-03"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="library-field-group">
+          <label className="library-field-label">Order By</label>
+          <select
+            className="library-sort"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+          >
+            <option value="rank">Gerrymander Rank</option>
+            <option value="name">State Name</option>
+            <option value="score-desc">Highest District Score</option>
+          </select>
+        </div>
       </div>
       <p className="library-summary">
-        {query
+        {deferredSearch
           ? `Showing ${totalDistricts} districts in ${stateGroups.length} states`
           : `${totalDistricts} congressional districts across ${stateGroups.length} states`}
         {selectedIds.size > 0 && (
@@ -173,7 +193,11 @@ export default function Library() {
         {stateGroups.map((group) => {
           const gData = stateGerrymanderData[group.fips];
           return (
-            <section key={group.fips} className={`state-section${gData ? ' state-section-ranked' : ''}`}>
+            <section
+              key={group.fips}
+              className={`state-section${gData ? ' state-section-ranked' : ''}`}
+              onMouseLeave={() => setHoveredId(null)}
+            >
               <div className="state-header">
                 <div className="state-header-left">
                   {gData && (
@@ -182,7 +206,9 @@ export default function Library() {
                     </span>
                   )}
                   <h2 className="state-name">{group.name}</h2>
-                  <span className="state-district-count">{group.districts.length} district{group.districts.length !== 1 ? 's' : ''}</span>
+                  <span className="state-district-count">
+                    {group.districts.length} district{group.districts.length !== 1 ? 's' : ''}
+                  </span>
                 </div>
                 {gData && (
                   <div className="state-header-right">
@@ -219,6 +245,5 @@ export default function Library() {
         })}
       </div>
     </div>
-    </>
   );
 }

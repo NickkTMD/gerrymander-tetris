@@ -11,9 +11,11 @@ export default function Leaderboard() {
 
   return (
     <div className="leaderboard-page">
-      <h1>Leaderboard</h1>
+      <div className="leaderboard-page-header">
+        <h1>Leaderboard</h1>
+      </div>
       {entries.length === 0 ? (
-        <p className="leaderboard-empty">No scores yet</p>
+        <p className="leaderboard-empty">No scores yet.</p>
       ) : (
         <table className="leaderboard-table">
           <thead>

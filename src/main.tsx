@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import './index.css'
+import './App.css'
 import App from './App.tsx'
 import Library from './pages/Library.tsx'
 import Leaderboard from './pages/Leaderboard.tsx'
@@ -15,7 +16,9 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/" element={<App />} />
         <Route path="/library" element={<Library />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
-        <Route path="/about" element={<div style={{ padding: '2rem', color: '#888' }}>Coming soon.</div>} />
+        <Route path="/about" element={
+          <div className="about-page">Coming soon.</div>
+        } />
       </Routes>
     </BrowserRouter>
   </StrictMode>,

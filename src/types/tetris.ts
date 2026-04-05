@@ -15,6 +15,12 @@ export interface ActivePiece {
   col: number;
 }
 
+export interface SandCell {
+  row: number;
+  col: number;
+  type: PieceType;
+}
+
 export interface GameState {
   board: BoardGrid;
   activePiece: ActivePiece | null;
@@ -25,4 +31,7 @@ export interface GameState {
   status: GameStatus;
   tickIntervalMs: number;
   piecesPlaced: number;
+  hardDropping: boolean;
+  sandCells: SandCell[] | null;
+  sandSpeedMs: number;
 }

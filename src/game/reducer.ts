@@ -1,4 +1,4 @@
-import type { GameState } from '../types/tetris';
+import type { GameState, BoardGrid } from '../types/tetris';
 import type { FeatureFlags } from '../types/featureFlags';
 import { createEmptyBoard } from '../constants/board';
 import {
@@ -7,6 +7,8 @@ import {
   lockPiece,
   clearFullRows,
   clearBottomRows,
+  extractSandCells,
+  stepSandCells,
   spawnPiece,
   getRandomPieceType,
   computeTickInterval,
@@ -21,7 +23,9 @@ export type GameAction =
   | { type: 'MOVE_DOWN' }
   | { type: 'HARD_DROP' }
   | { type: 'ROTATE' }
-  | { type: 'TOGGLE_PAUSE' };
+  | { type: 'TOGGLE_PAUSE' }
+  | { type: 'SAND_TICK' }
+  | { type: 'SET_SAND_SPEED'; ms: number };
 
 export const initialState: GameState = {
   board: createEmptyBoard(),
@@ -33,13 +37,14 @@ export const initialState: GameState = {
   status: 'idle',
   tickIntervalMs: computeTickInterval(0),
   piecesPlaced: 0,
+  hardDropping: false,
+  sandCells: null,
+  sandSpeedMs: computeTickInterval(0),
 };
 
 export function createGameReducer(flags: FeatureFlags) {
-  function lockAndSpawn(state: GameState): GameState {
-    if (!state.activePiece) return state;
-
-    let board = lockPiece(state.board, state.activePiece);
+  // Shared logic once all cells are on the board: clear rows, update score, spawn next.
+  function finalizeBoard(state: GameState, board: BoardGrid): GameState {
     const { board: clearedBoard, rowsCleared } = clearFullRows(board);
     board = clearedBoard;
 
@@ -54,31 +59,54 @@ export function createGameReducer(flags: FeatureFlags) {
     const scoreGain = computeScore(rowsCleared, state.level);
 
     const nextPiece = spawnPiece(state.nextPieceType);
-    if (!canPlace(board, nextPiece.shape, nextPiece.row, nextPiece.col)) {
-      return {
-        ...state,
-        board,
-        activePiece: null,
-        score: state.score + scoreGain,
-        linesCleared: newLines,
-        level: newLevel,
-        status: 'gameover',
-        tickIntervalMs: computeTickInterval(newLevel),
-        piecesPlaced: newPiecesPlaced,
-      };
-    }
 
     return {
       ...state,
       board,
       activePiece: nextPiece,
       nextPieceType: getRandomPieceType(),
+      sandCells: null,
       score: state.score + scoreGain,
       linesCleared: newLines,
       level: newLevel,
       tickIntervalMs: computeTickInterval(newLevel),
       piecesPlaced: newPiecesPlaced,
+      hardDropping: false,
     };
+  }
+
+  // These mirror the constants in useGameLoop.ts.
+  const HARD_DROP_STEP_MS = 8;
+  const SOFT_DROP_REPEAT_MS = 50;
+
+  function lockAndSpawn(state: GameState, dropMode: 'tick' | 'soft' | 'hard'): GameState {
+    if (!state.activePiece) return state;
+
+    // Game over if any cell of the locking piece is above the board
+    const { shape, row: pieceRow } = state.activePiece;
+    const hasAboveBoard = shape.some((row, r) => row.some((cell, _c) => cell && pieceRow + r < 0));
+    if (hasAboveBoard) {
+      const board = lockPiece(state.board, state.activePiece);
+      return { ...state, board, status: 'gameover', activePiece: null, sandCells: null, hardDropping: false };
+    }
+
+    if (flags.sandMode) {
+      // Don't lock to board yet — let cells animate downward as sand.
+      const sandSpeedMs =
+        dropMode === 'hard' ? HARD_DROP_STEP_MS :
+        dropMode === 'soft' ? SOFT_DROP_REPEAT_MS :
+        state.tickIntervalMs;
+      return {
+        ...state,
+        activePiece: null,
+        sandCells: extractSandCells(state.activePiece),
+        sandSpeedMs,
+        hardDropping: false,
+      };
+    }
+
+    const board = lockPiece(state.board, state.activePiece);
+    return finalizeBoard(state, board);
   }
 
   return function gameReducer(state: GameState, action: GameAction): GameState {
@@ -97,6 +125,9 @@ export function createGameReducer(flags: FeatureFlags) {
           status: 'playing',
           tickIntervalMs: computeTickInterval(0),
           piecesPlaced: 0,
+          hardDropping: false,
+          sandCells: null,
+          sandSpeedMs: computeTickInterval(0),
         };
       }
 
@@ -120,7 +151,8 @@ export function createGameReducer(flags: FeatureFlags) {
           }
           return newState;
         }
-        return lockAndSpawn(state);
+        const dropMode = action.type === 'TICK' ? 'tick' : state.hardDropping ? 'hard' : 'soft';
+        return lockAndSpawn(state, dropMode);
       }
 
       case 'MOVE_LEFT': {
@@ -158,19 +190,35 @@ export function createGameReducer(flags: FeatureFlags) {
       }
 
       case 'HARD_DROP': {
-        if (state.status !== 'playing' || !state.activePiece) return state;
-        const p = state.activePiece;
-        let dropRow = p.row;
-        while (canPlace(state.board, p.shape, dropRow + 1, p.col)) {
-          dropRow++;
+        if (state.status !== 'playing' || !state.activePiece || state.hardDropping) return state;
+        return { ...state, hardDropping: true };
+      }
+
+      case 'SET_SAND_SPEED': {
+        if (!state.sandCells) return state;
+        return { ...state, sandSpeedMs: action.ms };
+      }
+
+      case 'SAND_TICK': {
+        if (state.status !== 'playing' || !state.sandCells) return state;
+
+        const { cells, allSettled } = stepSandCells(state.board, state.sandCells);
+
+        if (!allSettled) {
+          return { ...state, sandCells: cells };
         }
-        const dropDistance = dropRow - p.row;
-        const stateWithDrop = {
-          ...state,
-          activePiece: { ...p, row: dropRow },
-          score: state.score + dropDistance * 2,
-        };
-        return lockAndSpawn(stateWithDrop);
+
+        // Game over if any settled sand cell is above the board
+        if (cells.some(cell => cell.row < 0)) {
+          return { ...state, sandCells: null, status: 'gameover', hardDropping: false };
+        }
+
+        // All cells have settled — write them to the board and finalize.
+        const board = state.board.map(row => [...row]);
+        for (const cell of cells) {
+          board[cell.row][cell.col] = cell.type;
+        }
+        return finalizeBoard({ ...state, sandCells: null }, board);
       }
 
       default:

@@ -1,4 +1,4 @@
-import type { BoardGrid, PieceShape, ActivePiece } from '../types/tetris';
+import type { BoardGrid, PieceShape, ActivePiece, SandCell } from '../types/tetris';
 import { BOARD_COLS, BOARD_ROWS } from '../constants/board';
 import { PIECES, PIECE_TYPES } from '../constants/pieces';
 
@@ -27,7 +27,8 @@ export function canPlace(
       if (!shape[r][c]) continue;
       const br = row + r;
       const bc = col + c;
-      if (br < 0 || br >= BOARD_ROWS || bc < 0 || bc >= BOARD_COLS) return false;
+      if (br >= BOARD_ROWS || bc < 0 || bc >= BOARD_COLS) return false;
+      if (br < 0) continue; // above the board is always empty
       if (board[br][bc] !== null) return false;
     }
   }
@@ -40,7 +41,8 @@ export function lockPiece(board: BoardGrid, piece: ActivePiece): BoardGrid {
   for (let r = 0; r < shape.length; r++) {
     for (let c = 0; c < shape[r].length; c++) {
       if (shape[r][c]) {
-        newBoard[row + r][col + c] = type;
+        const br = row + r;
+        if (br >= 0) newBoard[br][col + c] = type;
       }
     }
   }
@@ -66,6 +68,51 @@ export function clearBottomRows(board: BoardGrid, count: number): BoardGrid {
   return [...emptyRows, ...kept];
 }
 
+export function extractSandCells(piece: ActivePiece): SandCell[] {
+  const cells: SandCell[] = [];
+  const { shape, row: pieceRow, col: pieceCol, type } = piece;
+  for (let r = 0; r < shape.length; r++) {
+    for (let c = 0; c < shape[r].length; c++) {
+      if (shape[r][c]) {
+        cells.push({ row: pieceRow + r, col: pieceCol + c, type });
+      }
+    }
+  }
+  return cells;
+}
+
+export function stepSandCells(
+  board: BoardGrid,
+  cells: SandCell[]
+): { cells: SandCell[]; allSettled: boolean } {
+  // Process bottommost cells first so they claim lower positions before
+  // cells above them try to move into the same spot.
+  const sorted = [...cells].sort((a, b) => b.row - a.row);
+  const newCells: SandCell[] = [];
+  const newPos = new Set<string>();
+  let anyMoved = false;
+
+  for (const cell of sorted) {
+    const nextRow = cell.row + 1;
+    const nextKey = `${nextRow},${cell.col}`;
+    const canFall =
+      nextRow < BOARD_ROWS &&
+      (nextRow < 0 || board[nextRow][cell.col] === null) &&
+      !newPos.has(nextKey);
+
+    if (canFall) {
+      newCells.push({ ...cell, row: nextRow });
+      newPos.add(nextKey);
+      anyMoved = true;
+    } else {
+      newCells.push(cell);
+      newPos.add(`${cell.row},${cell.col}`);
+    }
+  }
+
+  return { cells: newCells, allSettled: !anyMoved };
+}
+
 export function mergePieceOntoBoard(board: BoardGrid, piece: ActivePiece | null): BoardGrid {
   if (!piece) return board;
   const display = board.map(row => [...row]);
@@ -88,7 +135,7 @@ export function spawnPiece(pieceType: string): ActivePiece {
   const shape = PIECES[pieceType].shape;
   const cols = shape[0].length;
   const col = Math.floor((BOARD_COLS - cols) / 2);
-  return { type: pieceType, shape, row: 0, col };
+  return { type: pieceType, shape, row: -shape.length, col };
 }
 
 export function getRandomPieceType(): string {

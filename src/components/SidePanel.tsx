@@ -7,6 +7,9 @@ interface SidePanelProps {
   linesCleared?: number;
 }
 
+// Max pixel dimension for the preview box (fits within the 140px side panel with padding)
+const MAX_PREVIEW_PX = 108;
+
 export default function SidePanel({
   score = 0,
   nextPiece = 'district1',
@@ -18,6 +21,9 @@ export default function SidePanel({
   const rows = shape.length;
   const cols = Math.max(...shape.map(r => r.length));
   const color = getPieceColor(nextPiece);
+
+  // Scale cell size so the piece always fits inside the preview box
+  const cellSize = Math.max(3, Math.min(14, Math.floor(MAX_PREVIEW_PX / Math.max(rows, cols))));
 
   return (
     <div className="side-panel">
@@ -40,6 +46,7 @@ export default function SidePanel({
           style={{
             '--preview-cols': cols,
             '--preview-rows': rows,
+            '--cell-size': `${cellSize}px`,
           } as React.CSSProperties}
         >
           {Array.from({ length: rows }, (_, r) =>

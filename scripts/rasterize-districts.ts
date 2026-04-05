@@ -73,6 +73,31 @@ function getAllRings(geom: { type: string; coordinates: number[][][] | number[][
   return (geom.coordinates as number[][][][]).flat();
 }
 
+/** Count total polygon vertices as a proxy for shape complexity. */
+function countVertices(geom: Polygon | MultiPolygon): number {
+  const allPolys = geom.type === 'MultiPolygon'
+    ? geom.coordinates as number[][][][]
+    : [geom.coordinates as number[][][]];
+  let count = 0;
+  for (const poly of allPolys) {
+    for (const ring of poly) count += ring.length;
+  }
+  return count;
+}
+
+const MIN_GRID = 8;
+const MAX_GRID = 24;
+
+/**
+ * Map vertex count to a grid size on a log scale.
+ * ~50 vertices → 8 cells (simple/compact districts)
+ * ~2000+ vertices → 24 cells (complex/gerrymandered districts)
+ */
+function gridSizeForComplexity(vertexCount: number): number {
+  const t = Math.min(1, Math.log10(vertexCount / 50) / Math.log10(2000 / 50));
+  return Math.max(MIN_GRID, Math.round(MIN_GRID + t * (MAX_GRID - MIN_GRID)));
+}
+
 /** Compute bounding box extent (max of width/height) for a set of rings */
 function bboxExtent(rings: number[][][]): { minX: number; minY: number; maxX: number; maxY: number; extent: number } {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -124,11 +149,10 @@ function main() {
     return true;
   });
 
-  // Each district scales to fill the grid individually (fitScale) so that
-  // every district gets full 12×12 resolution regardless of geographic size.
-  // maxArea caps filled cells at 50 to keep pieces reasonable for gameplay.
-  const GRID_SIZE = 12;
-  const MAX_AREA = 50;
+  // Grid size varies per district based on polygon complexity (vertex count).
+  // Simple/compact districts get a smaller grid; gerrymandered/tentacled
+  // districts get a larger grid so their weird shapes are preserved.
+  // No maxArea cap — we no longer downscale complex shapes into oblivion.
 
   const entries: string[] = [];
   const ids: string[] = [];
@@ -138,7 +162,11 @@ function main() {
     const geoid = props.GEOID;
     const geom = feature.geometry;
 
-    const shape = rasterizeFeature(geom, { gridSize: GRID_SIZE, maxArea: MAX_AREA });
+    const vertexCount = countVertices(geom);
+    const gridSize = gridSizeForComplexity(vertexCount);
+    const shape = rasterizeFeature(geom, { gridSize });
+    const filledCells = shape.reduce((sum, row) => sum + row.filter(Boolean).length, 0);
+    console.log(`  ${geoid}: ${vertexCount} verts → ${gridSize}×${gridSize} grid, ${filledCells} cells, shape ${shape[0].length}w×${shape.length}h`);
     const color = KELLY_COLORS[hashString(geoid) % KELLY_COLORS.length];
     const name = getDistrictLabel(props.STATEFP, props.CD119FP);
 

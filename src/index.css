@@ -1,20 +1,49 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Special+Elite&family=Share+Tech+Mono&display=swap');
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+  /* Dark palette */
+  --bg:          #0D0C0A;
+  --surface:     #161412;
+  --surface-mid: #1E1C18;
+  --border:      #2A2720;
+  --border-mid:  #3A3730;
+  --text:        #E8E3D8;
+  --text-mid:    #9A9082;
+  --text-dim:    #5A5348;
+  --red-stamp:   #D42020;
+  --red-dark:    #2D0A0A;
+  --blue-govt:   #2060CC;
+  --blue-dark:   #081430;
 
-  color-scheme: dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #000;
+  /* Board */
+  --board-bg:    #060605;
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Typography */
+  --font-display: 'Bebas Neue', 'Arial Narrow', Arial, sans-serif;
+  --font-body:    'Special Elite', 'Courier New', monospace;
+  --font-mono:    'Share Tech Mono', 'Courier New', monospace;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
 }
 
 body {
   margin: 0;
-  min-width: 320px;
+  min-height: 100vh;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
 }
