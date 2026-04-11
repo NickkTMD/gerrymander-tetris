@@ -10,6 +10,7 @@ import { useGameLoop } from './hooks/useGameLoop'
 import { useSoundDispatch } from './hooks/useSoundDispatch'
 import { audioEngine } from './audio/AudioEngine'
 import { addScore } from './leaderboard'
+import { useMusic } from './audio/music'
 import { DEFAULT_FEATURE_FLAGS } from './types/featureFlags'
 import type { FeatureFlags } from './types/featureFlags'
 
@@ -21,6 +22,7 @@ function App() {
   const [muted, setMuted] = useState(false);
   const isSandSettling = state.sandCells !== null;
   useGameLoop(dispatch, state.status, state.tickIntervalMs, state.hardDropping, isSandSettling, state.sandSpeedMs);
+  useMusic(state.status);
 
   const prevStatus = useRef(state.status);
   useEffect(() => {

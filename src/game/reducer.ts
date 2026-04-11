@@ -50,8 +50,8 @@ export function createGameReducer(flags: FeatureFlags) {
 
     const newPiecesPlaced = state.piecesPlaced + 1;
 
-    if (flags.periodicBottomClear && newPiecesPlaced % 5 === 0) {
-      board = clearBottomRows(board, 5);
+    if (flags.periodicBottomClear && newPiecesPlaced % 2 === 0) {
+      board = clearBottomRows(board, 3);
     }
 
     const newLines = state.linesCleared + rowsCleared;
