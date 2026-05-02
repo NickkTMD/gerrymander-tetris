@@ -1,11 +1,12 @@
 /** Political lean of each state, used to color district pieces */
-export enum PoliticalLean {
-  StrongR = 0,
-  LeanR = 1,
-  TossUp = 2,
-  LeanD = 3,
-  StrongD = 4,
-}
+export const PoliticalLean = {
+  StrongR: 0,
+  LeanR: 1,
+  TossUp: 2,
+  LeanD: 3,
+  StrongD: 4,
+} as const;
+export type PoliticalLean = typeof PoliticalLean[keyof typeof PoliticalLean];
 
 /** Map from 2-digit FIPS code to PoliticalLean */
 export const stateLeans: Record<string, PoliticalLean> = {
